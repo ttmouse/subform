@@ -473,13 +473,13 @@ body.selecting {
   stroke-opacity: 1 !important;
 }
 
-.resize-handle {
+.resize-area {
   position: absolute;
   background: transparent;
   pointer-events: auto;
 }
 
-.resize-handle.n {
+.resize-area.top {
   top: -6px;
   left: 0;
   width: 100%;
@@ -487,7 +487,7 @@ body.selecting {
   cursor: ns-resize;
 }
 
-.resize-handle.s {
+.resize-area.bottom {
   bottom: -6px;
   left: 0;
   width: 100%;
@@ -495,7 +495,7 @@ body.selecting {
   cursor: ns-resize;
 }
 
-.resize-handle.e {
+.resize-area.right {
   right: -6px;
   top: 0;
   width: 12px;
@@ -503,7 +503,7 @@ body.selecting {
   cursor: ew-resize;
 }
 
-.resize-handle.w {
+.resize-area.left {
   left: -6px;
   top: 0;
   width: 12px;
@@ -511,36 +511,38 @@ body.selecting {
   cursor: ew-resize;
 }
 
-.resize-handle.nw,
-.resize-handle.se {
+.resize-area.corner {
   width: 16px;
   height: 16px;
+  pointer-events: auto;
+}
+
+.resize-area.corner.top-left,
+.resize-area.corner.bottom-right {
   cursor: nwse-resize;
 }
 
-.resize-handle.ne,
-.resize-handle.sw {
-  width: 16px;
-  height: 16px;
+.resize-area.corner.top-right,
+.resize-area.corner.bottom-left {
   cursor: nesw-resize;
 }
 
-.resize-handle.nw {
+.resize-area.corner.top-left {
   left: -8px;
   top: -8px;
 }
 
-.resize-handle.ne {
+.resize-area.corner.top-right {
   right: -8px;
   top: -8px;
 }
 
-.resize-handle.sw {
+.resize-area.corner.bottom-left {
   left: -8px;
   bottom: -8px;
 }
 
-.resize-handle.se {
+.resize-area.corner.bottom-right {
   right: -8px;
   bottom: -8px;
 }

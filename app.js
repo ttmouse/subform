@@ -193,17 +193,22 @@ function readCanvasState() {
 }
 
 function serializeState() {
-  const notes = Array.from(state.notes.values()).map((note) => ({
-    id: note.id,
-    x: note.x,
-    y: note.y,
-    width: note.width,
-    height: note.height,
-    content: note.type === 'image' ? '' : note.textarea.value,
-    title: note.title ?? '',
-    type: note.type,
-    imageData: note.type === 'image' ? note.imageData : null,
-  }));
+  const notes = Array.from(state.notes.values()).map((note) => {
+    const titleEl = note.element.querySelector('.note-title');
+    const titleText = titleEl ? titleEl.textContent : note.title ?? '';
+    note.title = titleText;
+    return {
+      id: note.id,
+      x: note.x,
+      y: note.y,
+      width: note.width,
+      height: note.height,
+      content: note.type === 'image' ? '' : note.textarea.value,
+      title: titleText,
+      type: note.type,
+      imageData: note.type === 'image' ? note.imageData : null,
+    };
+  });
 
   return {
     notes,
@@ -240,8 +245,10 @@ function restoreSnapshot(snapshot) {
   state.translateY = snapshot.transform?.translateY ?? 0;
   applyTransform();
 
+  let titlesUpdated = false;
+
   snapshot.notes.forEach((noteData) => {
-    createNote({
+    const restoredNote = createNote({
       id: noteData.id,
       x: noteData.x,
       y: noteData.y,
@@ -252,6 +259,16 @@ function restoreSnapshot(snapshot) {
       title: noteData.title,
       imageData: noteData.imageData,
     });
+
+    if (restoredNote.type === 'output') {
+      const originalTitle = noteData.title || '';
+      if (!originalTitle || originalTitle.toLowerCase().startsWith('generating')) {
+        const textValue = restoredNote.textarea?.value?.trim() ?? '';
+        const fallbackTitle = textValue ? textValue.split('\n')[0].slice(0, 40) : 'Output';
+        setNoteTitle(restoredNote, fallbackTitle || 'Output');
+        titlesUpdated = true;
+      }
+    }
   });
 
   snapshot.connections.forEach((connection) => {
@@ -261,6 +278,9 @@ function restoreSnapshot(snapshot) {
   });
 
   renderConnections();
+  if (titlesUpdated) {
+    persistState();
+  }
 }
 
 function undo() {
@@ -465,12 +485,25 @@ function bringNoteToFront(note) {
 }
 
 function addResizeHandles(element) {
-  const positions = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
-  positions.forEach((pos) => {
-    const handle = document.createElement('div');
-    handle.className = `resize-handle ${pos}`;
-    pos.split('').forEach((dir) => handle.classList.add(dir));
-    element.appendChild(handle);
+  const configs = [
+    { classes: ['resize-area', 'top'], north: true },
+    { classes: ['resize-area', 'right'], east: true },
+    { classes: ['resize-area', 'bottom'], south: true },
+    { classes: ['resize-area', 'left'], west: true },
+    { classes: ['resize-area', 'corner', 'top-left'], north: true, west: true },
+    { classes: ['resize-area', 'corner', 'top-right'], north: true, east: true },
+    { classes: ['resize-area', 'corner', 'bottom-left'], south: true, west: true },
+    { classes: ['resize-area', 'corner', 'bottom-right'], south: true, east: true },
+  ];
+
+  configs.forEach((config) => {
+    const area = document.createElement('div');
+    area.className = config.classes.join(' ');
+    if (config.north) area.dataset.resizeNorth = 'true';
+    if (config.south) area.dataset.resizeSouth = 'true';
+    if (config.east) area.dataset.resizeEast = 'true';
+    if (config.west) area.dataset.resizeWest = 'true';
+    element.appendChild(area);
   });
 }
 
@@ -480,13 +513,22 @@ function registerNoteEvents(note) {
   note.rightDot.addEventListener('pointerdown', (event) => startConnection(event, note, 'right'));
 
   note.element.addEventListener('pointerdown', (event) => {
-    if (event.target.closest('.resize-handle')) return;
+    if (event.target.closest('.resize-area')) return;
     bringNoteToFront(note);
     focusNote(note, event);
   });
 
-  note.element.querySelectorAll('.resize-handle').forEach((handle) => {
-    handle.addEventListener('pointerdown', (event) => startResize(event, note, handle.classList.contains('n'), handle.classList.contains('s'), handle.classList.contains('e'), handle.classList.contains('w')));
+  note.element.querySelectorAll('.resize-area').forEach((area) => {
+    area.addEventListener('pointerdown', (event) =>
+      startResize(
+        event,
+        note,
+        area.dataset.resizeNorth === 'true',
+        area.dataset.resizeSouth === 'true',
+        area.dataset.resizeEast === 'true',
+        area.dataset.resizeWest === 'true'
+      )
+    );
   });
 
   if (note.textarea && note.type !== 'output') {
@@ -526,6 +568,15 @@ function autoResize(note) {
   note.element.style.height = `${newHeight}px`;
   note.height = newHeight;
   renderConnections();
+}
+
+function setNoteTitle(note, title) {
+  if (!note) return;
+  const titleEl = note.element.querySelector('.note-title');
+  if (titleEl) {
+    titleEl.textContent = title;
+  }
+  note.title = title;
 }
 
 function focusNote(note, event) {
@@ -936,7 +987,7 @@ function triggerGeneration(sourceNote) {
         outputNote.textarea.readOnly = true;
         autoResize(outputNote);
       }
-      outputNote.element.querySelector('.note-title').textContent = context.title;
+      setNoteTitle(outputNote, context.title);
     })
     .catch((error) => {
       if (outputNote.textarea) {
@@ -945,7 +996,7 @@ function triggerGeneration(sourceNote) {
         outputNote.textarea.readOnly = true;
         autoResize(outputNote);
       }
-      outputNote.element.querySelector('.note-title').textContent = 'Generation error';
+      setNoteTitle(outputNote, 'Generation error');
     })
     .finally(() => {
       persistState();
