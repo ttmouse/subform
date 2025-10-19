@@ -307,6 +307,32 @@ body.selecting {
   backdrop-filter: blur(5px);
 }
 
+.note.input-note {
+  background: rgba(27, 27, 29, 0.9);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.note.output-note {
+  background: rgba(12, 12, 20, 0.92);
+  border: 0.5px solid rgba(140, 127, 247, 0.35);
+  box-shadow: 0 18px 36px rgba(36, 30, 80, 0.25);
+}
+
+.note.output-note .note-title {
+  color: rgba(140, 127, 247, 0.75);
+  letter-spacing: 0.12em;
+}
+
+.note.output-note .note-bottom-bar-text {
+  color: rgba(140, 127, 247, 0.55);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.note.output-note .note-bottom-bar-right svg path {
+  stroke: rgba(140, 127, 247, 0.55) !important;
+}
+
 .note.active {
   box-shadow: 0 0 0 calc(2px * var(--stroke-scale, 1)) rgba(255, 255, 255, 0.45);
 }
@@ -421,7 +447,7 @@ body.selecting {
 }
 
 .note-bottom-bar-right {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 10px;
   font-weight: 400;
   padding: 0px;
@@ -440,11 +466,11 @@ body.selecting {
 }
 
 .note-bottom-bar-right:hover {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .note-bottom-bar-right:hover svg path {
-  stroke-opacity: 0.8 !important;
+  stroke-opacity: 1 !important;
 }
 
 .resize-handle {

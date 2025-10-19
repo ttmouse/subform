@@ -353,7 +353,9 @@ function snapToGrid(value) {
 function createNote({ id, x, y, width = 300, height = 280, content = '', type = 'input', title = '', imageData = null }) {
   const noteId = id || generateId();
   const element = document.createElement('div');
-  element.className = `note${type === 'output' ? ' output-note' : ''}${type === 'image' ? ' image-note' : ''}`;
+  element.className = ['note', type === 'image' ? 'image-note' : type === 'output' ? 'output-note' : 'input-note']
+    .filter(Boolean)
+    .join(' ');
   element.dataset.id = noteId;
   element.style.left = `${x}px`;
   element.style.top = `${y}px`;
@@ -397,7 +399,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
 
   const modelLabel = document.createElement('div');
   modelLabel.className = 'note-bottom-bar-text';
-  modelLabel.textContent = type === 'output' ? '' : state.settings.model || 'deepseek-v3-250324';
+  modelLabel.textContent = type === 'output' ? 'AI OUTPUT' : state.settings.model || 'deepseek-v3-250324';
 
   const actionButton = document.createElement('div');
   actionButton.className = 'note-bottom-bar-right';
@@ -407,14 +409,14 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     // Copy图标
     actionButton.innerHTML = `
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M3 0.5H9C9.27614 0.5 9.5 0.723858 9.5 1V7M1 9.5H6.5C6.77614 9.5 7 9.27614 7 9V3.5C7 3.22386 6.77614 3 6.5 3H1C0.723858 3 0.5 3.22386 0.5 3.5V9C0.5 9.27614 0.723858 9.5 1 9.5Z" stroke="rgba(255, 255, 255, 0.4)" stroke-linecap="round" stroke-linejoin="round" style="stroke-opacity: 0.4;"></path>
+        <path d="M3 0.5H9C9.27614 0.5 9.5 0.723858 9.5 1V7M1 9.5H6.5C6.77614 9.5 7 9.27614 7 9V3.5C7 3.22386 6.77614 3 6.5 3H1C0.723858 3 0.5 3.22386 0.5 3.5V9C0.5 9.27614 0.723858 9.5 1 9.5Z" stroke="rgba(255, 255, 255, 0.75)" stroke-linecap="round" stroke-linejoin="round" style="stroke-opacity: 0.95;"></path>
       </svg>
     `;
   } else {
     // Generate图标
     actionButton.innerHTML = `
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M0.5 6.5H8.5C9.05228 6.5 9.5 6.05228 9.5 5.5V2.5C9.5 1.94772 9.05228 1.5 8.5 1.5H5.5M0.5 6.5L3 4M0.5 6.5L3 9" stroke="rgba(255, 255, 255, 0.4)" stroke-linecap="round" stroke-linejoin="round" style="stroke-opacity: 0.4;"></path>
+        <path d="M0.5 6.5H8.5C9.05228 6.5 9.5 6.05228 9.5 5.5V2.5C9.5 1.94772 9.05228 1.5 8.5 1.5H5.5M0.5 6.5L3 4M0.5 6.5L3 9" stroke="rgba(255, 255, 255, 0.75)" stroke-linecap="round" stroke-linejoin="round" style="stroke-opacity: 0.95;"></path>
       </svg>
     `;
   }
