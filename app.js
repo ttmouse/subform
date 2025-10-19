@@ -1495,6 +1495,13 @@ function handleKeydown(event) {
     event.preventDefault();
     duplicateSelection();
   }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+    event.preventDefault();
+    clearConnectionSelection(false);
+    state.selection = new Set(state.notes.keys());
+    updateSelectionStyles();
+    renderConnections();
+  }
   if (event.key === 'Backspace' || event.key === 'Delete') {
     const hasAnySelection = state.selection.size > 0 || state.connectionSelection.size > 0;
     const focusedTextarea = document.activeElement?.tagName === 'TEXTAREA';
