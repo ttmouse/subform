@@ -511,6 +511,8 @@ function registerNoteEvents(note) {
   note.header.addEventListener('pointerdown', (event) => startNoteDrag(event, note));
   note.leftDot.addEventListener('pointerdown', (event) => startConnection(event, note, 'left'));
   note.rightDot.addEventListener('pointerdown', (event) => startConnection(event, note, 'right'));
+  note.leftDot.addEventListener('dblclick', (event) => handleConnectorDoubleClick(event, note, 'left'));
+  note.rightDot.addEventListener('dblclick', (event) => handleConnectorDoubleClick(event, note, 'right'));
 
   note.element.addEventListener('pointerdown', (event) => {
     if (event.target.closest('.resize-area')) return;
@@ -791,7 +793,51 @@ function duplicateSelection() {
   return clones;
 }
 
+function handleConnectorDoubleClick(event, note, side) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const snapshot = serializeState();
+  const width = note.width ?? 300;
+  const height = note.height ?? 280;
+  const direction = side === 'left' ? 'left' : 'right';
+  const position = findAvailablePosition(note, direction, { width, height });
+
+  const newNote = createNote({
+    x: position.x,
+    y: position.y,
+    width,
+    height,
+    type: 'input',
+    content: '',
+  });
+
+  state.selection.clear();
+  state.selection.add(newNote.id);
+  updateSelectionStyles();
+  clearConnectionSelection(false);
+
+  if (newNote.textarea) {
+    newNote.textarea.focus();
+  }
+
+  const connection =
+    side === 'left'
+      ? { from: newNote.id, fromSide: 'right', to: note.id, toSide: 'left' }
+      : { from: note.id, fromSide: 'right', to: newNote.id, toSide: 'left' };
+
+  state.connections.push({
+    id: generateId(),
+    ...connection,
+  });
+
+  renderConnections();
+  pushUndo('Create connector note', snapshot);
+  persistState();
+}
+
 function startConnection(event, note, side) {
+  if (event.button !== 0 || event.detail > 1) return;
   event.preventDefault();
   event.stopPropagation();
   clearConnectionSelection();
