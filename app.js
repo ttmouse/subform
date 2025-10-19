@@ -1,6 +1,7 @@
 const CANVAS_SIZE = 50000;
 const MIN_SCALE = 0.125;
 const MAX_SCALE = 4;
+const KEYBOARD_ZOOM_FACTOR = 0.1;
 const GRID_STEP = 10;
 const STORAGE_KEY = 'subform-api-config';
 const CAPTURE_STORAGE_KEY = 'subform-capture-config';
@@ -52,6 +53,7 @@ const state = {
   notes: new Map(),
   connections: [],
   connectionSelection: new Set(),
+  connectedDots: new Map(),
   selection: new Set(),
   activeConnection: null,
   dragging: null,
@@ -287,6 +289,8 @@ function clearWorkspace() {
   state.selection.clear();
   state.activeConnection = null;
   state.zCounter = 0;
+  state.connectedDots = new Map();
+  updateConnectionDotStates(state.connectedDots);
   elements.connectionsSvg.innerHTML = '';
   elements.selectionOverlay.innerHTML = '';
 }
@@ -463,6 +467,7 @@ function addResizeHandles(element) {
   positions.forEach((pos) => {
     const handle = document.createElement('div');
     handle.className = `resize-handle ${pos}`;
+    pos.split('').forEach((dir) => handle.classList.add(dir));
     element.appendChild(handle);
   });
 }
@@ -547,9 +552,32 @@ function updateSelectionStyles() {
   });
 }
 
+function updateConnectionDotStates(connectedDots = state.connectedDots) {
+  const highlightedDots = new Set();
+  state.connectionSelection.forEach((connectionId) => {
+    const connection = state.connections.find((conn) => conn.id === connectionId);
+    if (!connection) return;
+    highlightedDots.add(`${connection.from}:${connection.fromSide}`);
+    highlightedDots.add(`${connection.to}:${connection.toSide}`);
+  });
+
+  state.notes.forEach((note) => {
+    const leftKey = `${note.id}:left`;
+    const rightKey = `${note.id}:right`;
+    note.leftDot.classList.toggle('connected', connectedDots.has(leftKey));
+    note.rightDot.classList.toggle('connected', connectedDots.has(rightKey));
+    note.leftDot.classList.toggle('connection-highlight', highlightedDots.has(leftKey));
+    note.rightDot.classList.toggle('connection-highlight', highlightedDots.has(rightKey));
+  });
+}
+
 function clearConnectionSelection(triggerRender = true) {
-  if (state.connectionSelection.size === 0) return;
+  if (state.connectionSelection.size === 0) {
+    updateConnectionDotStates();
+    return;
+  }
   state.connectionSelection.clear();
+  updateConnectionDotStates();
   if (triggerRender) renderConnections();
 }
 
@@ -765,6 +793,7 @@ function renderConnections() {
   elements.connectionsSvg.innerHTML = '';
 
   const pathFragment = document.createDocumentFragment();
+  const connectedDots = new Map();
 
   function drawConnection(fromPoint, toPoint, connection) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -804,6 +833,8 @@ function renderConnections() {
 
     const fromPoint = getConnectionPoint(fromNote, connection.fromSide);
     const toPoint = getConnectionPoint(toNote, connection.toSide);
+    connectedDots.set(`${connection.from}:${connection.fromSide}`, true);
+    connectedDots.set(`${connection.to}:${connection.toSide}`, true);
     drawConnection(fromPoint, toPoint, connection);
   });
 
@@ -821,6 +852,8 @@ function renderConnections() {
   }
 
   elements.connectionsSvg.appendChild(pathFragment);
+  state.connectedDots = connectedDots;
+  updateConnectionDotStates(connectedDots);
 }
 
 function handleConnectionPointerDown(event) {
@@ -846,6 +879,7 @@ function handleConnectionPointerDown(event) {
     state.connectionSelection.add(connectionId);
   }
 
+  updateConnectionDotStates();
   renderConnections();
 }
 
@@ -1065,19 +1099,24 @@ function centerCanvas() {
   applyTransform();
 }
 
+function zoomAt(targetScale, focusX, focusY) {
+  const clampedScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, targetScale));
+  if (clampedScale === state.scale) return;
+  const rect = elements.gridContainer.getBoundingClientRect();
+  const originX = (focusX - rect.left) / state.scale;
+  const originY = (focusY - rect.top) / state.scale;
+  state.translateX = snapToGrid(focusX - originX * clampedScale);
+  state.translateY = snapToGrid(focusY - originY * clampedScale);
+  state.scale = clampedScale;
+  applyTransform();
+}
+
 function handleWheel(event) {
   if (event.ctrlKey || state.isSpacePressed) {
     event.preventDefault();
     const delta = event.deltaY * -0.0025;
-    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.scale * (1 + delta)));
-    const rect = elements.gridContainer.getBoundingClientRect();
-    const originX = (event.clientX - rect.left) / state.scale;
-    const originY = (event.clientY - rect.top) / state.scale;
-
-    state.translateX = snapToGrid(event.clientX - originX * newScale);
-    state.translateY = snapToGrid(event.clientY - originY * newScale);
-    state.scale = newScale;
-    applyTransform();
+    const targetScale = state.scale * (1 + delta);
+    zoomAt(targetScale, event.clientX, event.clientY);
     return;
   }
 
@@ -1091,15 +1130,30 @@ function handleWheel(event) {
 }
 
 function startPan(event) {
-  const isCanvasTarget = event.target === elements.gridContainer || event.target === elements.gridCanvas;
+  const target = event.target;
+  const isConnectionsTarget = target === elements.connectionsSvg || target.closest?.('#connections-svg') === elements.connectionsSvg;
+  const isOverlayTarget = target === elements.selectionOverlay || target.closest?.('#selection-overlay') === elements.selectionOverlay;
+  const isCanvasTarget =
+    target === elements.gridContainer ||
+    target === elements.gridCanvas ||
+    isConnectionsTarget ||
+    isOverlayTarget;
+  const isNoteInteraction = target.closest?.('.note');
   if (!state.isSpacePressed && event.button !== 1) {
-    if (event.button === 0 && isCanvasTarget) {
+    if (event.button === 0 && isCanvasTarget && !isNoteInteraction) {
+      let changed = false;
       if (state.selection.size) {
         state.selection.clear();
         updateSelectionStyles();
+        changed = true;
       }
-      clearConnectionSelection();
-      renderConnections();
+      if (state.connectionSelection.size) {
+        clearConnectionSelection(false);
+        changed = true;
+      }
+      if (changed) {
+        renderConnections();
+      }
     }
     return;
   }
@@ -1153,17 +1207,42 @@ function handleDoubleClick(event) {
   persistState();
 }
 
+function handleKeyboardZoom(direction) {
+  const factor = 1 + KEYBOARD_ZOOM_FACTOR;
+  const targetScale = direction > 0 ? state.scale * factor : state.scale / factor;
+  const focusX = innerWidth / 2;
+  const focusY = innerHeight / 2;
+  zoomAt(targetScale, focusX, focusY);
+}
+
 function handleKeydown(event) {
   if (event.key === ' ') {
     state.isSpacePressed = true;
     elements.gridContainer.style.cursor = 'grab';
   }
 
+  const isMetaPressed = event.metaKey;
+  const isCtrlPressed = event.ctrlKey;
+
   if (event.key === 'Escape') {
     if (elements.captureLayer.getAttribute('aria-hidden') === 'false') {
       toggleCaptureLayer(false);
     }
     return;
+  }
+
+  if ((isMetaPressed || isCtrlPressed) && !event.altKey) {
+    const { key, code } = event;
+    if (key === '=' || key === '+' || code === 'Equal' || code === 'NumpadAdd') {
+      event.preventDefault();
+      handleKeyboardZoom(1);
+      return;
+    }
+    if (key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract') {
+      event.preventDefault();
+      handleKeyboardZoom(-1);
+      return;
+    }
   }
 
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
@@ -1224,6 +1303,7 @@ function deleteSelection() {
   state.selection.clear();
   state.connectionSelection.clear();
   updateSelectionStyles();
+  updateConnectionDotStates();
   renderConnections();
   persistState();
 }
