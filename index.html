@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subform</title>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="grid-container">
+      <canvas id="grid-canvas" width="50000" height="50000"></canvas>
+      <svg id="connections-svg" width="50000" height="50000"></svg>
+      <svg id="selection-overlay" width="50000" height="50000"></svg>
+    </div>
+
+    <div id="horizontal-scrollbar" class="scrollbar">
+      <div class="scrollbar-thumb"></div>
+    </div>
+    <div id="vertical-scrollbar" class="scrollbar">
+      <div class="scrollbar-thumb"></div>
+    </div>
+
+    <div id="menu-button" aria-expanded="false">
+      <svg
+        id="icon-menu"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path d="M1 5.5H15" stroke="white" stroke-linecap="round"></path>
+        <path d="M1 10.5H15" stroke="white" stroke-linecap="round"></path>
+      </svg>
+
+      <div id="expanded-content">
+        <label for="api-base-input">API Base URL</label>
+        <input
+          id="api-base-input"
+          type="url"
+          placeholder="https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+        />
+
+        <label for="api-key-input">API Key</label>
+        <input
+          id="api-key-input"
+          type="password"
+          placeholder="sk-********************************"
+          autocomplete="off"
+        />
+
+        <label for="api-model-input">Model</label>
+        <input
+          id="api-model-input"
+          type="text"
+          placeholder="deepseek-v3-250324"
+        />
+
+        <label class="remember">
+          <input type="checkbox" id="api-remember" />
+          <span>Remember settings on this device</span>
+        </label>
+      </div>
+
+      <svg
+        id="icon-enter"
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M0.5 6.5H8.5C9.05228 6.5 9.5 6.05228 9.5 5.5V2.5C9.5 1.94772 9.05228 1.5 8.5 1.5H5.5M0.5 6.5L3 4M0.5 6.5L3 9"
+          stroke="white"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></path>
+      </svg>
+      <div id="loading-bar"></div>
+    </div>
+
+    <div id="mobile-blocker" class="mobile-only">
+      <div class="mobile-content">
+        <h1>Subform is desktop-first</h1>
+        <p>Open this workspace on your laptop or desktop to start building.</p>
+      </div>
+    </div>
+
+    <button id="capture-config-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+      消息抓取配置
+    </button>
+
+    <div id="capture-config-layer" aria-hidden="true">
+      <div class="capture-panel" role="dialog" aria-modal="true" aria-labelledby="capture-config-title">
+        <header class="capture-header">
+          <div>
+            <h2 id="capture-config-title">消息抓取配置</h2>
+            <p class="capture-subtitle">配置抓取开关与回调地址，用于同步会话数据。</p>
+          </div>
+          <button type="button" class="capture-close" id="capture-config-close" aria-label="关闭配置面板">×</button>
+        </header>
+
+        <form class="capture-form" id="capture-config-form">
+          <label class="switch">
+            <input type="checkbox" id="capture-enabled" />
+            <span>启用消息抓取</span>
+          </label>
+
+          <label>
+            回调地址（Webhook）
+            <input type="url" id="capture-endpoint" placeholder="https://example.com/hooks/subform" />
+          </label>
+
+          <label>
+            自定义备注
+            <textarea id="capture-notes" rows="3" placeholder="说明抓取用途或对接系统..."></textarea>
+          </label>
+
+          <div class="capture-actions">
+            <button type="button" class="capture-button secondary" id="capture-cancel">取消</button>
+            <button type="submit" class="capture-button primary">保存配置</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
