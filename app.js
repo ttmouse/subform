@@ -55,6 +55,7 @@ const state = {
   connectionSelection: new Set(),
   connectedDots: new Map(),
   selection: new Set(),
+  marquee: null,
   activeConnection: null,
   dragging: null,
   resizing: null,
@@ -629,6 +630,116 @@ function updateSelectionStyles() {
       note.element.classList.remove('active');
     }
   });
+}
+
+function startMarqueeSelection(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const pointer = screenToWorld(event.clientX, event.clientY);
+  state.marquee = {
+    originX: pointer.x,
+    originY: pointer.y,
+    additive: event.shiftKey,
+    initialSelection: new Set(state.selection),
+    rect: null,
+    moved: false,
+    connectionCleared: false,
+  };
+
+  if (!event.shiftKey && state.selection.size) {
+    state.selection.clear();
+    updateSelectionStyles();
+  }
+
+  elements.selectionOverlay.innerHTML = '';
+  document.body.classList.add('selecting');
+  document.addEventListener('pointermove', updateMarqueeSelection);
+  document.addEventListener('pointerup', endMarqueeSelection, { once: true });
+}
+
+function updateMarqueeSelection(event) {
+  if (!state.marquee) return;
+  const pointer = screenToWorld(event.clientX, event.clientY);
+  const { originX, originY } = state.marquee;
+  const minX = Math.min(originX, pointer.x);
+  const minY = Math.min(originY, pointer.y);
+  const width = Math.abs(pointer.x - originX);
+  const height = Math.abs(pointer.y - originY);
+
+  if (!state.marquee.rect) {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.classList.add('selection-rect');
+    elements.selectionOverlay.appendChild(rect);
+    state.marquee.rect = rect;
+  }
+
+  state.marquee.rect.setAttribute('x', minX);
+  state.marquee.rect.setAttribute('y', minY);
+  state.marquee.rect.setAttribute('width', width);
+  state.marquee.rect.setAttribute('height', height);
+
+  const threshold = 4;
+  const moved = width > threshold || height > threshold;
+  if (moved) {
+    if (!state.marquee.moved) {
+      state.marquee.moved = true;
+      if (!state.marquee.connectionCleared && state.connectionSelection.size) {
+        clearConnectionSelection();
+        state.marquee.connectionCleared = true;
+      }
+    }
+  } else {
+    return;
+  }
+
+  const nextSelection = state.marquee.additive ? new Set(state.marquee.initialSelection) : new Set();
+
+  state.notes.forEach((note) => {
+    const noteWidth = note.width ?? note.element.offsetWidth ?? 0;
+    const noteHeight = note.height ?? note.element.offsetHeight ?? 0;
+    const intersects =
+      note.x < minX + width &&
+      note.x + noteWidth > minX &&
+      note.y < minY + height &&
+      note.y + noteHeight > minY;
+    if (intersects) {
+      nextSelection.add(note.id);
+    }
+  });
+
+  state.selection = nextSelection;
+  updateSelectionStyles();
+}
+
+function endMarqueeSelection(event) {
+  if (!state.marquee) return;
+  updateMarqueeSelection(event);
+  document.removeEventListener('pointermove', updateMarqueeSelection);
+  document.body.classList.remove('selecting');
+  elements.selectionOverlay.innerHTML = '';
+
+  if (!state.marquee.moved) {
+    if (state.marquee.additive) {
+      state.selection = state.marquee.initialSelection;
+      updateSelectionStyles();
+    } else {
+      let changed = false;
+      if (state.selection.size) {
+        state.selection.clear();
+        updateSelectionStyles();
+        changed = true;
+      }
+      if (state.connectionSelection.size) {
+        clearConnectionSelection(false);
+        changed = true;
+      }
+      if (changed) {
+        renderConnections();
+      }
+    }
+  }
+
+  state.marquee = null;
 }
 
 function updateConnectionDotStates(connectedDots = state.connectedDots) {
@@ -1264,22 +1375,11 @@ function startPan(event) {
     isConnectionsTarget ||
     isOverlayTarget;
   const isNoteInteraction = target.closest?.('.note');
-  if (!state.isSpacePressed && event.button !== 1) {
-    if (event.button === 0 && isCanvasTarget && !isNoteInteraction) {
-      let changed = false;
-      if (state.selection.size) {
-        state.selection.clear();
-        updateSelectionStyles();
-        changed = true;
-      }
-      if (state.connectionSelection.size) {
-        clearConnectionSelection(false);
-        changed = true;
-      }
-      if (changed) {
-        renderConnections();
-      }
-    }
+  if (event.button === 0 && !state.isSpacePressed && isCanvasTarget && !isNoteInteraction) {
+    startMarqueeSelection(event);
+    return;
+  }
+  if (event.button !== 1 && !state.isSpacePressed) {
     return;
   }
   event.preventDefault();

@@ -89,6 +89,13 @@ body.selecting {
   pointer-events: none;
 }
 
+.selection-rect {
+  fill: rgba(108, 92, 231, 0.12);
+  stroke: rgba(140, 127, 247, 0.65);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
 .scrollbar {
   position: fixed;
   z-index: 1000;
