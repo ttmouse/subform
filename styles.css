@@ -81,12 +81,12 @@ body.selecting {
   inset: 0;
 }
 
-#connections-svg {
-  pointer-events: none;
-}
-
 #connections-svg .connection-path {
   pointer-events: stroke;
+}
+
+#selection-overlay {
+  pointer-events: none;
 }
 
 .scrollbar {

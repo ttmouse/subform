@@ -1126,7 +1126,17 @@ function endPan() {
 }
 
 function handleDoubleClick(event) {
-  if (event.target !== elements.gridContainer && event.target !== elements.gridCanvas) return;
+  const target = event.target;
+  if (target.closest?.('.note')) return;
+  if (target.classList?.contains('connection-path')) return;
+
+  const isCanvasTarget =
+    target === elements.gridContainer ||
+    target === elements.gridCanvas ||
+    target === elements.connectionsSvg;
+
+  if (!isCanvasTarget) return;
+
   const pointer = screenToWorld(event.clientX, event.clientY);
   const snapshot = serializeState();
   const note = createNote({
