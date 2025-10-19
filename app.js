@@ -1552,7 +1552,12 @@ function handlePaste(event) {
   if (!clipboard) return;
 
   const text = clipboard.getData('text/plain')?.trim();
+  const activeEl = document.activeElement;
+  const isTextareaFocused = activeEl?.tagName === 'TEXTAREA';
   if (text) {
+    if (isTextareaFocused) {
+      return;
+    }
     event.preventDefault();
     const center = screenToWorld(innerWidth / 2, innerHeight / 2);
     const note = createNote({
