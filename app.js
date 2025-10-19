@@ -635,6 +635,10 @@ function updateSelectionStyles() {
 function startMarqueeSelection(event) {
   event.preventDefault();
   event.stopPropagation();
+  const activeEl = document.activeElement;
+  if (activeEl && activeEl.tagName === 'TEXTAREA') {
+    activeEl.blur();
+  }
   const pointer = screenToWorld(event.clientX, event.clientY);
   state.marquee = {
     originX: pointer.x,
@@ -1486,16 +1490,13 @@ function handleKeydown(event) {
     const hasAnySelection = state.selection.size > 0 || state.connectionSelection.size > 0;
     const focusedTextarea = document.activeElement?.tagName === 'TEXTAREA';
 
-    if (!hasAnySelection) {
-      if (focusedTextarea) return;
-      if (event.key === 'Backspace') return;
-    }
-
     if (focusedTextarea) {
-      document.activeElement.blur();
+      return;
     }
 
-    if (!hasAnySelection) return;
+    if (!hasAnySelection) {
+      return;
+    }
 
     event.preventDefault();
     deleteSelection();
