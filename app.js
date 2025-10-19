@@ -258,6 +258,7 @@ function restoreSnapshot(snapshot) {
       type: noteData.type,
       title: noteData.title,
       imageData: noteData.imageData,
+      skipInitialResize: true,
     });
 
     if (restoredNote.type === 'output') {
@@ -370,7 +371,7 @@ function snapToGrid(value) {
   return Math.round(value / GRID_STEP) * GRID_STEP;
 }
 
-function createNote({ id, x, y, width = 300, height = 280, content = '', type = 'input', title = '', imageData = null }) {
+function createNote({ id, x, y, width = 300, height = 280, content = '', type = 'input', title = '', imageData = null, skipInitialResize = false }) {
   const noteId = id || generateId();
   const element = document.createElement('div');
   element.className = ['note', type === 'image' ? 'image-note' : type === 'output' ? 'output-note' : 'input-note']
@@ -456,6 +457,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     rightDot,
     textarea,
     actionButton,
+    bottomBar,
     modelLabel,
     type,
     title: titleEl.textContent,
@@ -464,6 +466,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     width,
     height,
     imageData,
+    skipInitialResize,
   };
 
   state.notes.set(noteId, note);
@@ -559,16 +562,37 @@ function registerNoteEvents(note) {
     }
   });
 
-  autoResize(note);
+  if (note.skipInitialResize) {
+    note.skipInitialResize = false;
+  } else {
+    autoResize(note);
+  }
 }
 
 function autoResize(note) {
   if (!note.textarea) return;
-  note.textarea.style.height = 'auto';
-  const minHeight = 160;
-  const newHeight = Math.max(minHeight, note.textarea.scrollHeight + 32);
-  note.element.style.height = `${newHeight}px`;
-  note.height = newHeight;
+  const textarea = note.textarea;
+  textarea.style.height = 'auto';
+
+  const container = note.element;
+  const currentStructural = Math.max(container.offsetHeight - textarea.offsetHeight, 0);
+
+  if (note.type === 'output') {
+    const headerHeight = note.header?.offsetHeight ?? 0;
+    const bottomBarHeight = note.bottomBar?.offsetHeight ?? 0;
+    const fallbackStructural = headerHeight + bottomBarHeight;
+    const structuralBuffer = Math.max(currentStructural, fallbackStructural, 72);
+    const contentHeight = Math.max(140, textarea.scrollHeight);
+    textarea.style.height = `${contentHeight}px`;
+    const newHeight = Math.max(240, contentHeight + structuralBuffer);
+    container.style.height = `${newHeight}px`;
+    note.height = newHeight;
+  } else {
+    const minHeight = 160;
+    const newHeight = Math.max(minHeight, textarea.scrollHeight + 32);
+    container.style.height = `${newHeight}px`;
+    note.height = newHeight;
+  }
   renderConnections();
 }
 
@@ -779,6 +803,7 @@ function duplicateSelection() {
       height: original.height,
       content: original.textarea ? original.textarea.value : '',
       type: original.type,
+      skipInitialResize: true,
     });
     clones.push(cloned.id);
   });
@@ -810,6 +835,7 @@ function handleConnectorDoubleClick(event, note, side) {
     height,
     type: 'input',
     content: '',
+    skipInitialResize: false,
   });
 
   state.selection.clear();
