@@ -1548,8 +1548,34 @@ function deleteSelection() {
 }
 
 function handlePaste(event) {
-  const items = event.clipboardData?.items;
-  if (!items) return;
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+
+  const text = clipboard.getData('text/plain')?.trim();
+  if (text) {
+    event.preventDefault();
+    const center = screenToWorld(innerWidth / 2, innerHeight / 2);
+    const note = createNote({
+      x: snapToGrid(center.x) - 150,
+      y: snapToGrid(center.y) - 120,
+      content: text,
+      type: 'input',
+    });
+    state.selection.clear();
+    clearConnectionSelection(false);
+    state.selection.add(note.id);
+    updateSelectionStyles();
+    if (note.textarea) {
+      note.textarea.focus();
+    }
+    pushUndo('Paste text');
+    persistState();
+    renderConnections();
+    return;
+  }
+
+  const items = clipboard.items;
+  if (!items?.length) return;
   const imageItem = Array.from(items).find((item) => item.type.startsWith('image/'));
   if (!imageItem) return;
   event.preventDefault();
