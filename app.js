@@ -468,6 +468,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     height,
     imageData,
     skipInitialResize,
+    minHeight: height,
   };
 
   state.notes.set(noteId, note);
@@ -589,8 +590,9 @@ function autoResize(note) {
     container.style.height = `${newHeight}px`;
     note.height = newHeight;
   } else {
-    const minHeight = 160;
-    const newHeight = Math.max(minHeight, textarea.scrollHeight + 32);
+    const baseMinHeight = Math.max(160, note.minHeight ?? 160);
+    const contentHeight = textarea.scrollHeight + 32;
+    const newHeight = Math.max(baseMinHeight, contentHeight);
     container.style.height = `${newHeight}px`;
     note.height = newHeight;
   }
@@ -900,7 +902,14 @@ function resizeNote(event) {
 
 function endResize() {
   document.removeEventListener('pointermove', resizeNote);
+  const resizing = state.resizing;
   state.resizing = null;
+  if (resizing) {
+    const note = state.notes.get(resizing.noteId);
+    if (note && note.type !== 'output') {
+      note.minHeight = Math.max(160, note.height);
+    }
+  }
   persistState();
 }
 
@@ -938,19 +947,19 @@ function handleConnectorDoubleClick(event, note, side) {
   event.stopPropagation();
 
   const snapshot = serializeState();
-  const width = note.width ?? 300;
-  const height = note.height ?? 280;
+  const defaultWidth = 300;
+  const defaultHeight = 280;
   const direction = side === 'left' ? 'left' : 'right';
-  const position = findAvailablePosition(note, direction, { width, height });
+  const position = findAvailablePosition(note, direction, { width: defaultWidth, height: defaultHeight });
 
   const newNote = createNote({
     x: position.x,
     y: position.y,
-    width,
-    height,
+    width: defaultWidth,
+    height: defaultHeight,
     type: 'input',
     content: '',
-    skipInitialResize: false,
+    skipInitialResize: true,
   });
 
   state.selection.clear();
@@ -1553,9 +1562,14 @@ function handlePaste(event) {
 
   const text = clipboard.getData('text/plain')?.trim();
   const activeEl = document.activeElement;
-  const isTextareaFocused = activeEl?.tagName === 'TEXTAREA';
+  const isTextInputFocused = Boolean(
+    activeEl &&
+      ((activeEl.tagName === 'TEXTAREA') ||
+        (activeEl.tagName === 'INPUT' && !['button', 'submit', 'checkbox', 'radio', 'range', 'color'].includes((activeEl.type || '').toLowerCase())) ||
+        activeEl.isContentEditable)
+  );
   if (text) {
-    if (isTextareaFocused) {
+    if (isTextInputFocused) {
       return;
     }
     event.preventDefault();
