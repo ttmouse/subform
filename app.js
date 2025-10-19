@@ -1483,7 +1483,20 @@ function handleKeydown(event) {
     duplicateSelection();
   }
   if (event.key === 'Backspace' || event.key === 'Delete') {
-    if (document.activeElement?.tagName === 'TEXTAREA') return;
+    const hasAnySelection = state.selection.size > 0 || state.connectionSelection.size > 0;
+    const focusedTextarea = document.activeElement?.tagName === 'TEXTAREA';
+
+    if (!hasAnySelection) {
+      if (focusedTextarea) return;
+      if (event.key === 'Backspace') return;
+    }
+
+    if (focusedTextarea) {
+      document.activeElement.blur();
+    }
+
+    if (!hasAnySelection) return;
+
     event.preventDefault();
     deleteSelection();
   }
