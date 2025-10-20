@@ -8,6 +8,178 @@ const CAPTURE_STORAGE_KEY = 'subform-capture-config';
 const DB_NAME = 'SubformWorkspace';
 const DB_VERSION = 1;
 
+function escapeHtml(input) {
+  if (input == null) return '';
+  return String(input)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderInlineMarkdown(text) {
+  if (!text) return '';
+  let result = escapeHtml(text);
+
+  const codePlaceholders = [];
+  result = result.replace(/`([^`]+)`/g, (_, code) => {
+    const index = codePlaceholders.length;
+    codePlaceholders.push(`<code>${code}</code>`);
+    return `@@CODE${index}@@`;
+  });
+
+  result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  result = result.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  result = result.replace(/\*(?!\s)([^*]+?)\*(?=\s|$)/g, '<em>$1</em>');
+  result = result.replace(/_([^_]+)_/g, '<em>$1</em>');
+  result = result.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  result = result.replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  codePlaceholders.forEach((html, index) => {
+    result = result.replace(`@@CODE${index}@@`, html);
+  });
+
+  return result;
+}
+
+function renderMarkdown(text) {
+  if (!text) return '<p class="markdown-empty">暂无内容</p>';
+
+  const lines = String(text).replace(/\r\n/g, '\n').split('\n');
+  const html = [];
+  let inCodeBlock = false;
+  let codeBuffer = [];
+  let listType = null;
+  let listBuffer = [];
+  let blockquoteBuffer = [];
+  let paragraphBuffer = [];
+
+  const flushCode = () => {
+    if (!codeBuffer.length) return;
+    const code = codeBuffer.join('\n');
+    html.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+    codeBuffer = [];
+  };
+
+  const flushList = () => {
+    if (!listType || !listBuffer.length) {
+      listType = null;
+      listBuffer = [];
+      return;
+    }
+    html.push(`<${listType}>${listBuffer.join('')}</${listType}>`);
+    listType = null;
+    listBuffer = [];
+  };
+
+  const flushBlockquote = () => {
+    if (!blockquoteBuffer.length) return;
+    const content = blockquoteBuffer.map((line) => renderInlineMarkdown(line)).join('<br />');
+    html.push(`<blockquote>${content}</blockquote>`);
+    blockquoteBuffer = [];
+  };
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    const content = paragraphBuffer.map((line) => renderInlineMarkdown(line)).join('<br />');
+    html.push(`<p>${content}</p>`);
+    paragraphBuffer = [];
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      if (inCodeBlock) {
+        flushCode();
+        inCodeBlock = false;
+      } else {
+        flushList();
+        flushBlockquote();
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(line);
+      return;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      flushBlockquote();
+      html.push('');
+      return;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      flushBlockquote();
+      const level = headingMatch[1].length;
+      html.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      return;
+    }
+
+    const hrMatch = trimmed.match(/^(\*{3,}|-{3,}|_{3,})$/);
+    if (hrMatch) {
+      flushParagraph();
+      flushList();
+      flushBlockquote();
+      html.push('<hr />');
+      return;
+    }
+
+    const blockquoteMatch = trimmed.match(/^>\s?(.*)$/);
+    if (blockquoteMatch) {
+      flushParagraph();
+      flushList();
+      blockquoteBuffer.push(blockquoteMatch[1]);
+      return;
+    }
+
+    const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      flushBlockquote();
+      if (listType !== 'ol') {
+        flushList();
+        listType = 'ol';
+      }
+      listBuffer.push(`<li>${renderInlineMarkdown(orderedMatch[2])}</li>`);
+      return;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*+]\s+(.*)$/);
+    if (unorderedMatch) {
+      flushParagraph();
+      flushBlockquote();
+      if (listType !== 'ul') {
+        flushList();
+        listType = 'ul';
+      }
+      listBuffer.push(`<li>${renderInlineMarkdown(unorderedMatch[1])}</li>`);
+      return;
+    }
+
+    paragraphBuffer.push(trimmed);
+  });
+
+  if (inCodeBlock) {
+    flushCode();
+  }
+
+  flushParagraph();
+  flushList();
+  flushBlockquote();
+
+  return html.filter(Boolean).join('\n');
+}
+
 const elements = {
   gridContainer: document.getElementById('grid-container'),
   gridCanvas: document.getElementById('grid-canvas'),
@@ -412,18 +584,27 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
   header.append(leftDot, titleEl, rightDot);
 
   let textarea = null;
+  let markdownContainer = null;
 
   if (type === 'image' && imageData) {
     const imgContainer = document.createElement('div');
     imgContainer.className = 'note-content';
     imgContainer.style.backgroundImage = `url('${imageData}')`;
     element.append(header, imgContainer);
+  } else if (type === 'output') {
+    markdownContainer = document.createElement('div');
+    markdownContainer.className = 'note-content note-markdown';
+    textarea = document.createElement('textarea');
+    textarea.className = 'note-content note-raw-content';
+    textarea.readOnly = true;
+    textarea.tabIndex = -1;
+    textarea.setAttribute('aria-hidden', 'true');
+    element.append(header, markdownContainer, textarea);
   } else {
     textarea = document.createElement('textarea');
     textarea.className = 'note-content';
     textarea.value = content;
-    textarea.placeholder = type === 'output' ? '' : 'Type your note here...';
-    textarea.readOnly = type === 'output';
+    textarea.placeholder = 'Type your note here...';
     element.append(header, textarea);
   }
 
@@ -468,6 +649,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     leftDot,
     rightDot,
     textarea,
+    markdownContainer,
     actionButton,
     bottomBar,
     modelLabel,
@@ -484,9 +666,31 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
 
   state.notes.set(noteId, note);
 
+  if (note.type === 'output') {
+    setOutputContent(note, content, { resize: false });
+  }
+
   registerNoteEvents(note);
   bringNoteToFront(note);
   return note;
+}
+
+function setOutputContent(note, content, options = {}) {
+  if (!note || note.type !== 'output') return;
+  const value = typeof content === 'string' ? content : '';
+  const shouldResize = options.resize !== false;
+
+  if (note.textarea) {
+    note.textarea.value = value;
+  }
+
+  if (note.markdownContainer) {
+    note.markdownContainer.innerHTML = renderMarkdown(value);
+  }
+
+  if (shouldResize) {
+    autoResize(note);
+  }
 }
 
 function bringNoteToFrontElement(element) {
@@ -1188,21 +1392,11 @@ function triggerGeneration(sourceNote) {
 
   callModel(context.prompt)
     .then((result) => {
-      if (outputNote.textarea) {
-        outputNote.textarea.readOnly = false;
-        outputNote.textarea.value = result.trim();
-        outputNote.textarea.readOnly = true;
-        autoResize(outputNote);
-      }
+      setOutputContent(outputNote, result.trim());
       setNoteTitle(outputNote, context.title);
     })
     .catch((error) => {
-      if (outputNote.textarea) {
-        outputNote.textarea.readOnly = false;
-        outputNote.textarea.value = `⚠️ ${error.message}`;
-        outputNote.textarea.readOnly = true;
-        autoResize(outputNote);
-      }
+      setOutputContent(outputNote, `⚠️ ${error.message}`);
       setNoteTitle(outputNote, 'Generation error');
     })
     .finally(() => {
@@ -1230,30 +1424,15 @@ function regenerateOutput(outputNote) {
   pushUndo('Regenerate output', snapshot);
 
   setNoteTitle(outputNote, 'Generating…');
-  if (outputNote.textarea) {
-    outputNote.textarea.readOnly = false;
-    outputNote.textarea.value = '';
-    outputNote.textarea.readOnly = true;
-    autoResize(outputNote);
-  }
+  setOutputContent(outputNote, '', { resize: true });
 
   callModel(context.prompt)
     .then((result) => {
-      if (outputNote.textarea) {
-        outputNote.textarea.readOnly = false;
-        outputNote.textarea.value = result.trim();
-        outputNote.textarea.readOnly = true;
-        autoResize(outputNote);
-      }
+      setOutputContent(outputNote, result.trim());
       setNoteTitle(outputNote, context.title);
     })
     .catch((error) => {
-      if (outputNote.textarea) {
-        outputNote.textarea.readOnly = false;
-        outputNote.textarea.value = `⚠️ ${error.message}`;
-        outputNote.textarea.readOnly = true;
-        autoResize(outputNote);
-      }
+      setOutputContent(outputNote, `⚠️ ${error.message}`);
       setNoteTitle(outputNote, 'Generation error');
     })
     .finally(() => {

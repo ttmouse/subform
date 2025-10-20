@@ -7,3 +7,5 @@
 .claude/agents/kfc/spec-test.md
 .claude/settings/kfc-settings.json
 .claude/system-prompts/spec-workflow-starter.md
+.vercel/project.json
+.gitignore
