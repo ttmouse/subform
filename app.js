@@ -99,6 +99,17 @@ function loadSettings() {
   }
 }
 
+function isTextInputActive() {
+  const activeEl = document.activeElement;
+  if (!activeEl) return false;
+  if (activeEl.tagName === 'TEXTAREA') return true;
+  if (activeEl.tagName === 'INPUT') {
+    const type = (activeEl.type || '').toLowerCase();
+    return !['button', 'submit', 'checkbox', 'radio', 'range', 'color', 'file', 'reset'].includes(type);
+  }
+  return activeEl.isContentEditable === true;
+}
+
 function saveSettingsToStorage(settings) {
   if (settings.remember) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
@@ -1199,6 +1210,57 @@ function triggerGeneration(sourceNote) {
     });
 }
 
+function regenerateOutput(outputNote) {
+  if (!outputNote || outputNote.type !== 'output') return;
+  if (!state.settings.baseUrl || !state.settings.apiKey || !state.settings.model) {
+    toggleMenu(true);
+    return;
+  }
+  const inbound = state.connections.find((connection) => connection.to === outputNote.id);
+  if (!inbound) return;
+  const sourceNote = state.notes.get(inbound.from);
+  if (!sourceNote) return;
+
+  const context = buildContext(sourceNote.id);
+  if (!context.prompt) {
+    return;
+  }
+
+  const snapshot = serializeState();
+  pushUndo('Regenerate output', snapshot);
+
+  setNoteTitle(outputNote, 'Generating…');
+  if (outputNote.textarea) {
+    outputNote.textarea.readOnly = false;
+    outputNote.textarea.value = '';
+    outputNote.textarea.readOnly = true;
+    autoResize(outputNote);
+  }
+
+  callModel(context.prompt)
+    .then((result) => {
+      if (outputNote.textarea) {
+        outputNote.textarea.readOnly = false;
+        outputNote.textarea.value = result.trim();
+        outputNote.textarea.readOnly = true;
+        autoResize(outputNote);
+      }
+      setNoteTitle(outputNote, context.title);
+    })
+    .catch((error) => {
+      if (outputNote.textarea) {
+        outputNote.textarea.readOnly = false;
+        outputNote.textarea.value = `⚠️ ${error.message}`;
+        outputNote.textarea.readOnly = true;
+        autoResize(outputNote);
+      }
+      setNoteTitle(outputNote, 'Generation error');
+    })
+    .finally(() => {
+      persistState();
+    });
+}
+
 function buildContext(noteId) {
   const visited = new Set();
   const queue = [noteId];
@@ -1496,19 +1558,24 @@ function handleKeydown(event) {
     duplicateSelection();
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-    const activeEl = document.activeElement;
-    const isTextInputFocused = Boolean(
-      activeEl &&
-        ((activeEl.tagName === 'TEXTAREA') ||
-          (activeEl.tagName === 'INPUT' && !['button', 'submit', 'checkbox', 'radio', 'range', 'color'].includes((activeEl.type || '').toLowerCase())) ||
-          activeEl.isContentEditable)
-    );
-    if (!isTextInputFocused) {
+    if (!isTextInputActive()) {
       event.preventDefault();
       clearConnectionSelection(false);
       state.selection = new Set(state.notes.keys());
       updateSelectionStyles();
       renderConnections();
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
+    if (!isTextInputActive()) {
+      const selectedOutputs = Array.from(state.selection)
+        .map((id) => state.notes.get(id))
+        .filter((note) => note && note.type === 'output');
+      if (selectedOutputs.length === 1) {
+        event.preventDefault();
+        regenerateOutput(selectedOutputs[0]);
+        return;
+      }
     }
   }
   if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -1577,13 +1644,7 @@ function handlePaste(event) {
   if (!clipboard) return;
 
   const text = clipboard.getData('text/plain')?.trim();
-  const activeEl = document.activeElement;
-  const isTextInputFocused = Boolean(
-    activeEl &&
-      ((activeEl.tagName === 'TEXTAREA') ||
-        (activeEl.tagName === 'INPUT' && !['button', 'submit', 'checkbox', 'radio', 'range', 'color'].includes((activeEl.type || '').toLowerCase())) ||
-        activeEl.isContentEditable)
-  );
+  const isTextInputFocused = isTextInputActive();
   if (text) {
     if (isTextInputFocused) {
       return;
