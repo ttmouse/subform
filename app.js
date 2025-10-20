@@ -1496,11 +1496,20 @@ function handleKeydown(event) {
     duplicateSelection();
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-    event.preventDefault();
-    clearConnectionSelection(false);
-    state.selection = new Set(state.notes.keys());
-    updateSelectionStyles();
-    renderConnections();
+    const activeEl = document.activeElement;
+    const isTextInputFocused = Boolean(
+      activeEl &&
+        ((activeEl.tagName === 'TEXTAREA') ||
+          (activeEl.tagName === 'INPUT' && !['button', 'submit', 'checkbox', 'radio', 'range', 'color'].includes((activeEl.type || '').toLowerCase())) ||
+          activeEl.isContentEditable)
+    );
+    if (!isTextInputFocused) {
+      event.preventDefault();
+      clearConnectionSelection(false);
+      state.selection = new Set(state.notes.keys());
+      updateSelectionStyles();
+      renderConnections();
+    }
   }
   if (event.key === 'Backspace' || event.key === 'Delete') {
     const hasAnySelection = state.selection.size > 0 || state.connectionSelection.size > 0;
