@@ -56,12 +56,24 @@
           autocomplete="off"
         />
 
-        <label for="api-model-input">Model</label>
-        <input
-          id="api-model-input"
-          type="text"
-          placeholder="deepseek-v3-250324"
-        />
+        <label for="api-model-select">Default Model</label>
+        <div class="model-select-wrapper">
+          <div class="combobox" id="api-model-combobox">
+            <input
+              id="api-model-select"
+              type="text"
+              placeholder="-- 输入 API 信息后点击获取模型 --"
+              autocomplete="off"
+            />
+            <div class="combobox-dropdown" id="api-model-dropdown"></div>
+          </div>
+        </div>
+
+        <button type="button" id="api-test-btn" class="api-test-button">
+          <span class="test-icon">↻</span>
+          <span class="test-text">获取模型列表</span>
+        </button>
+        <div id="api-test-status" class="api-test-status"></div>
 
         <label class="remember">
           <input type="checkbox" id="api-remember" />

@@ -194,7 +194,12 @@ const elements = {
   loadingBar: document.getElementById('loading-bar'),
   inputBase: document.getElementById('api-base-input'),
   inputKey: document.getElementById('api-key-input'),
-  inputModel: document.getElementById('api-model-input'),
+  
+  modelSelect: document.getElementById('api-model-select'),
+  modelDropdown: document.getElementById('api-model-dropdown'),
+  modelCombobox: document.getElementById('api-model-combobox'),
+  testBtn: document.getElementById('api-test-btn'),
+  testStatus: document.getElementById('api-test-status'),
   inputRemember: document.getElementById('api-remember'),
   captureTrigger: document.getElementById('capture-config-trigger'),
   captureLayer: document.getElementById('capture-config-layer'),
@@ -240,6 +245,8 @@ const state = {
   capture: loadCaptureSettings(),
   lastPointer: { x: 0, y: 0 },
   isSpacePressed: false,
+  availableModels: [],
+  modelOptions: [],
 };
 
 function loadSettings() {
@@ -303,7 +310,9 @@ function applySettingsToUI() {
     elements.inputKey.value = '';
     elements.inputKey.dataset.masked = 'false';
   }
-  elements.inputModel.value = state.settings.model || 'deepseek-v3-250324';
+  if (elements.modelSelect) {
+    elements.modelSelect.value = state.settings.model || '';
+  }
   elements.inputRemember.checked = state.settings.remember;
 }
 
@@ -391,6 +400,7 @@ function serializeState() {
       title: titleText,
       type: note.type,
       imageData: note.type === 'image' ? note.imageData : null,
+      model: note.element.dataset.model || null,
     };
   });
 
@@ -444,6 +454,15 @@ function restoreSnapshot(snapshot) {
       imageData: noteData.imageData,
       skipInitialResize: true,
     });
+
+    // 恢复节点模型选择
+    if (noteData.model && restoredNote.type === 'input') {
+      restoredNote.element.dataset.model = noteData.model;
+      if (restoredNote.modelSelector) {
+        restoredNote.modelSelector.value = noteData.model;
+      }
+      restoredNote.modelLabel.textContent = noteData.model;
+    }
 
     if (restoredNote.type === 'output') {
       const originalTitle = noteData.title || '';
@@ -611,9 +630,31 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
   const bottomBar = document.createElement('div');
   bottomBar.className = 'note-bottom-bar';
 
-  const modelLabel = document.createElement('div');
-  modelLabel.className = 'note-bottom-bar-text';
-  modelLabel.textContent = type === 'output' ? 'AI OUTPUT' : state.settings.model || 'deepseek-v3-250324';
+  // 为 input 类型节点创建模型选择器，output 类型显示静态标签
+  let modelSelector = null;
+  let modelLabel = null;
+
+  if (type === 'input') {
+    // input 节点使用下拉选择器
+    modelSelector = document.createElement('select');
+    modelSelector.className = 'note-model-selector';
+    modelSelector.title = '选择模型';
+
+    modelSelector.addEventListener('change', (e) => {
+      const selectedModel = e.target.value;
+      element.dataset.model = selectedModel;
+      persistState();
+    });
+
+    bottomBar.appendChild(modelSelector);
+    updateNoteModelSelector(modelSelector);
+  } else {
+    // output 节点使用静态标签
+    modelLabel = document.createElement('div');
+    modelLabel.className = 'note-bottom-bar-text';
+    modelLabel.textContent = 'AI OUTPUT';
+    bottomBar.appendChild(modelLabel);
+  }
 
   const actionButton = document.createElement('div');
   actionButton.className = 'note-bottom-bar-right';
@@ -635,7 +676,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     `;
   }
 
-  bottomBar.append(modelLabel, actionButton);
+  bottomBar.appendChild(actionButton);
   element.append(bottomBar);
 
   addResizeHandles(element);
@@ -653,6 +694,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     actionButton,
     bottomBar,
     modelLabel,
+    modelSelector,
     type,
     title: titleEl.textContent,
     x,
@@ -1390,7 +1432,8 @@ function triggerGeneration(sourceNote) {
   pushUndo('Generate output', snapshot);
   persistState();
 
-  callModel(context.prompt)
+  const noteModel = sourceNote.element.dataset.model;
+  callModel(context.prompt, noteModel)
     .then((result) => {
       setOutputContent(outputNote, result.trim());
       setNoteTitle(outputNote, context.title);
@@ -1424,9 +1467,13 @@ function regenerateOutput(outputNote) {
   pushUndo('Regenerate output', snapshot);
 
   setNoteTitle(outputNote, 'Generating…');
-  setOutputContent(outputNote, '', { resize: true });
+  if (outputNote.textarea) {
+    outputNote.textarea.value = '';
+  }
+  autoResize(outputNote);
 
-  callModel(context.prompt)
+  const noteModel = sourceNote.element.dataset.model;
+  callModel(context.prompt, noteModel)
     .then((result) => {
       setOutputContent(outputNote, result.trim());
       setNoteTitle(outputNote, context.title);
@@ -1486,7 +1533,7 @@ function findAvailablePosition(note) {
   return { x, y };
 }
 
-async function callModel(prompt) {
+async function callModel(prompt, modelOverride = null) {
   const settings = state.settings;
   const response = await fetch(settings.baseUrl, {
     method: 'POST',
@@ -1495,7 +1542,7 @@ async function callModel(prompt) {
       Authorization: `Bearer ${settings.apiKey}`,
     },
     body: JSON.stringify({
-      model: settings.model,
+      model: modelOverride || settings.model,
       messages: [
         { role: 'system', content: 'You are Subform, a co-designer for branching prompt workflows. Reply with concrete, structured insights.' },
         { role: 'user', content: prompt },
@@ -1516,6 +1563,333 @@ async function callModel(prompt) {
   if (typeof data.output === 'string') return data.output;
   if (data.result) return data.result;
   return JSON.stringify(data, null, 2);
+}
+
+async function fetchModelList(baseUrl, apiKey) {
+  try {
+    // 构造 models URL: 移除末尾的 /chat/completions 或 /，然后加上 /models
+    let modelsUrl = baseUrl.trim();
+    
+    // 移除末尾的 /chat/completions
+    if (modelsUrl.includes('/chat/completions')) {
+      modelsUrl = modelsUrl.replace(/\/chat\/completions\/?$/, '');
+    }
+    
+    // 移除末尾的斜杠
+    modelsUrl = modelsUrl.replace(/\/$/, '');
+    
+    // 加上 /models
+    modelsUrl = modelsUrl + '/models';
+
+    console.log('[fetchModelList] Fetching from:', modelsUrl);
+
+    const response = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    console.log('[fetchModelList] Response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log('[fetchModelList] Error response:', errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log('[fetchModelList] Response data:', data);
+
+    // OpenAI 格式: { data: [{ id: 'gpt-4', ... }, ...] }
+    if (Array.isArray(data.data)) {
+      return data.data.map(m => ({
+        id: m.id,
+        name: m.id,
+      }));
+    }
+    // 其他可能的格式
+    if (Array.isArray(data.models)) {
+      return data.models.map(m => ({
+        id: m.id || m.name,
+        name: m.id || m.name,
+      }));
+    }
+    // 直接是数组
+    if (Array.isArray(data)) {
+      return data.map(m => ({
+        id: m.id || m,
+        name: m.id || m,
+      }));
+    }
+    return null;
+  } catch (error) {
+    console.error('[fetchModelList] Error:', error);
+    return null;
+  }
+}
+
+async function testConnection() {
+  const baseUrl = elements.inputBase.value.trim();
+  const apiKey = elements.inputKey.dataset.masked === 'true'
+    ? state.settings.apiKey
+    : elements.inputKey.value.trim();
+
+  if (!baseUrl || !apiKey) {
+    showTestStatus('请填写 API Base URL 和 API Key', 'error');
+    return;
+  }
+
+  elements.testBtn.disabled = true;
+  elements.testBtn.classList.add('testing');
+  showTestStatus('正在测试连接...', '');
+
+  try {
+    const models = await fetchModelList(baseUrl, apiKey);
+
+    if (models && models.length > 0) {
+      populateModelSelect(models);
+      showTestStatus(`✓ 连接成功！获取到 ${models.length} 个模型`, 'success');
+    } else {
+      const testResponse = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'test',
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 1,
+        }),
+      });
+
+      if (testResponse.status === 401) {
+        showTestStatus('✗ 认证失败，请检查 API Key', 'error');
+      } else if (testResponse.status === 404) {
+        showTestStatus('✗ 接口不存在，请检查 Base URL', 'error');
+      } else {
+        populateModelSelect([]);
+        showTestStatus('✓ 连接成功（无法获取模型列表，可手动输入）', 'success');
+      }
+    }
+  } catch (error) {
+    showTestStatus(`✗ 连接失败: ${error.message}`, 'error');
+  } finally {
+    elements.testBtn.disabled = false;
+    elements.testBtn.classList.remove('testing');
+  }
+}
+
+function populateModelSelect(models) {
+  state.availableModels = models;
+
+  // 更新 combobox 的选项列表（用于搜索）
+  state.modelOptions = models.map(m => ({ value: m.id, label: m.name }));
+
+  // 如果有当前值，保留它
+  const currentValue = elements.modelSelect.value;
+  if (currentValue && !models.find(m => m.id === currentValue)) {
+    // 如果当前值不在新列表中，添加它
+    state.modelOptions.unshift({ value: currentValue, label: currentValue });
+  }
+
+  // 更新所有节点的模型选择器
+  state.notes.forEach((note) => {
+    if (note.modelSelector) {
+      updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
+    }
+  });
+}
+
+// Combobox 相关函数
+function initModelCombobox() {
+  const input = elements.modelSelect;
+  const dropdown = elements.modelDropdown;
+
+  if (!input || !dropdown) return;
+
+  let highlightedIndex = -1;
+  let filteredOptions = [];
+
+  function showDropdown() {
+    dropdown.classList.add('active');
+    filterOptions(input.value);
+  }
+
+  function hideDropdown() {
+    dropdown.classList.remove('active');
+    highlightedIndex = -1;
+  }
+
+  function filterOptions(searchText) {
+    const options = state.modelOptions || [];
+    const search = searchText.toLowerCase();
+
+    if (search) {
+      filteredOptions = options.filter(opt =>
+        opt.label.toLowerCase().includes(search) ||
+        opt.value.toLowerCase().includes(search)
+      );
+    } else {
+      filteredOptions = [...options];
+    }
+
+    renderDropdown();
+  }
+
+  function renderDropdown() {
+    dropdown.innerHTML = '';
+
+    if (filteredOptions.length === 0) {
+      const noResults = document.createElement('div');
+      noResults.className = 'combobox-option no-results';
+      noResults.textContent = '无匹配结果，可直接输入模型名';
+      dropdown.appendChild(noResults);
+      return;
+    }
+
+    filteredOptions.forEach((opt, index) => {
+      const option = document.createElement('div');
+      option.className = 'combobox-option';
+      option.textContent = opt.label;
+      option.dataset.value = opt.value;
+
+      if (index === highlightedIndex) {
+        option.classList.add('highlighted');
+      }
+      if (opt.value === input.value) {
+        option.classList.add('selected');
+      }
+
+      option.addEventListener('click', () => {
+        selectOption(opt.value);
+      });
+
+      dropdown.appendChild(option);
+    });
+  }
+
+  function selectOption(value) {
+    input.value = value;
+    state.settings.model = value;
+    hideDropdown();
+
+    // 更新所有节点的默认模型显示
+    state.notes.forEach((note) => {
+      if (note.modelSelector) {
+        updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
+      }
+    });
+  }
+
+  function highlightNext() {
+    if (filteredOptions.length === 0) return;
+    highlightedIndex = (highlightedIndex + 1) % filteredOptions.length;
+    renderDropdown();
+    scrollToHighlighted();
+  }
+
+  function highlightPrev() {
+    if (filteredOptions.length === 0) return;
+    highlightedIndex = (highlightedIndex - 1 + filteredOptions.length) % filteredOptions.length;
+    renderDropdown();
+    scrollToHighlighted();
+  }
+
+  function scrollToHighlighted() {
+    const highlighted = dropdown.querySelector('.highlighted');
+    if (highlighted) {
+      highlighted.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // 事件监听
+  input.addEventListener('focus', showDropdown);
+
+  input.addEventListener('blur', () => {
+    // 延迟隐藏，允许点击选项
+    setTimeout(hideDropdown, 200);
+  });
+
+  input.addEventListener('input', () => {
+    showDropdown();
+    state.settings.model = input.value;
+  });
+
+  input.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!dropdown.classList.contains('active')) {
+          showDropdown();
+        } else {
+          highlightNext();
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        highlightPrev();
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
+          selectOption(filteredOptions[highlightedIndex].value);
+        } else {
+          hideDropdown();
+        }
+        break;
+      case 'Escape':
+        hideDropdown();
+        break;
+    }
+  });
+
+  // 点击外部关闭
+  document.addEventListener('click', (e) => {
+    if (!elements.modelCombobox.contains(e.target)) {
+      hideDropdown();
+    }
+  });
+}
+
+function showTestStatus(message, type) {
+  elements.testStatus.textContent = message;
+  elements.testStatus.className = 'api-test-status' + (type ? ` ${type}` : '');
+}
+
+function updateNoteModelSelector(selector, currentValue = '') {
+  if (!selector) return;
+
+  const previousValue = selector.value;
+  selector.innerHTML = '';
+
+  // 添加默认选项（使用全局默认模型）
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  const defaultModel = state.settings.model || '默认模型';
+  defaultOption.textContent = `默认 (${defaultModel})`;
+  selector.appendChild(defaultOption);
+
+  // 添加所有可用模型
+  const models = state.availableModels || [];
+  models.forEach(model => {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.name;
+    selector.appendChild(option);
+  });
+
+  // 如果当前值不在列表中，添加它（兼容手动输入的模型）
+  if (currentValue && !selector.querySelector(`option[value="${currentValue}"]`)) {
+    const option = document.createElement('option');
+    option.value = currentValue;
+    option.textContent = currentValue;
+    selector.appendChild(option);
+  }
+
+  selector.value = currentValue || previousValue || '';
 }
 
 function toggleMenu(force) {
@@ -1540,7 +1914,7 @@ function saveSettings() {
   const config = {
     baseUrl: elements.inputBase.value.trim(),
     apiKey: elements.inputKey.value.trim(),
-    model: elements.inputModel.value.trim() || 'deepseek-v3-250324',
+    model: elements.modelSelect.value || 'deepseek-v3-250324',
     remember: elements.inputRemember.checked,
   };
 
@@ -1551,8 +1925,12 @@ function saveSettings() {
 
   state.settings = config;
   saveSettingsToStorage(config);
+
+  // 更新所有节点的模型选择器默认文本
   state.notes.forEach((note) => {
-    if (note.type !== 'output') note.modelLabel.textContent = config.model;
+    if (note.modelSelector) {
+      updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
+    }
   });
   elements.inputKey.value = '•'.repeat(config.apiKey.length);
   elements.inputKey.dataset.masked = 'true';
@@ -1975,6 +2353,14 @@ function installGlobalListeners() {
   elements.menuSave.addEventListener('click', saveSettings);
   elements.inputKey.addEventListener('focus', unmaskApiKeyIfNeeded);
   window.addEventListener('click', handleDocumentClick);
+
+  if (elements.testBtn) {
+    elements.testBtn.addEventListener('click', testConnection);
+  }
+
+  // 初始化模型选择 combobox
+  initModelCombobox();
+
   window.addEventListener('resize', () => {
     applyTransform();
     persistState();
