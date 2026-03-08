@@ -461,7 +461,6 @@ function restoreSnapshot(snapshot) {
       if (restoredNote.modelSelector) {
         restoredNote.modelSelector.value = noteData.model;
       }
-      restoredNote.modelLabel.textContent = noteData.model;
     }
 
     if (restoredNote.type === 'output') {
@@ -611,14 +610,11 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
     imgContainer.style.backgroundImage = `url('${imageData}')`;
     element.append(header, imgContainer);
   } else if (type === 'output') {
+    // AI OUTPUT: render only Markdown content to avoid duplicate content areas
     markdownContainer = document.createElement('div');
     markdownContainer.className = 'note-content note-markdown';
-    textarea = document.createElement('textarea');
-    textarea.className = 'note-content note-raw-content';
-    textarea.readOnly = true;
-    textarea.tabIndex = -1;
-    textarea.setAttribute('aria-hidden', 'true');
-    element.append(header, markdownContainer, textarea);
+    // Do not create a separate raw textarea for outputs to prevent dual displays
+    element.append(header, markdownContainer);
   } else {
     textarea = document.createElement('textarea');
     textarea.className = 'note-content';
@@ -635,19 +631,25 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
   let modelLabel = null;
 
   if (type === 'input') {
-    // input 节点使用下拉选择器
-    modelSelector = document.createElement('select');
+    // input 节点使用 combobox 选择器
+    const comboboxWrapper = document.createElement('div');
+    comboboxWrapper.className = 'note-model-combobox';
+
+    modelSelector = document.createElement('input');
+    modelSelector.type = 'text';
     modelSelector.className = 'note-model-selector';
-    modelSelector.title = '选择模型';
+    modelSelector.placeholder = '默认模型';
+    modelSelector.title = '输入或选择模型';
 
-    modelSelector.addEventListener('change', (e) => {
-      const selectedModel = e.target.value;
-      element.dataset.model = selectedModel;
-      persistState();
-    });
+    const dropdown = document.createElement('div');
+    dropdown.className = 'note-model-dropdown';
 
-    bottomBar.appendChild(modelSelector);
-    updateNoteModelSelector(modelSelector);
+    comboboxWrapper.appendChild(modelSelector);
+    comboboxWrapper.appendChild(dropdown);
+    bottomBar.appendChild(comboboxWrapper);
+
+    // 初始化 combobox 逻辑
+    initNoteModelCombobox(modelSelector, dropdown, element);
   } else {
     // output 节点使用静态标签
     modelLabel = document.createElement('div');
@@ -709,6 +711,7 @@ function createNote({ id, x, y, width = 300, height = 280, content = '', type = 
   state.notes.set(noteId, note);
 
   if (note.type === 'output') {
+    // Initialize Markdown content for AI OUTPUT notes
     setOutputContent(note, content, { resize: false });
   }
 
@@ -815,7 +818,11 @@ function registerNoteEvents(note) {
 
   note.actionButton.addEventListener('click', () => {
     if (note.type === 'output') {
-      if (note.textarea) navigator.clipboard.writeText(note.textarea.value || '');
+      if (note.textarea) {
+        navigator.clipboard.writeText(note.textarea.value || '');
+      } else if (note.markdownContainer) {
+        navigator.clipboard.writeText(note.markdownContainer.textContent || '');
+      }
     } else {
       triggerGeneration(note);
     }
@@ -1694,13 +1701,6 @@ function populateModelSelect(models) {
     // 如果当前值不在新列表中，添加它
     state.modelOptions.unshift({ value: currentValue, label: currentValue });
   }
-
-  // 更新所有节点的模型选择器
-  state.notes.forEach((note) => {
-    if (note.modelSelector) {
-      updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
-    }
-  });
 }
 
 // Combobox 相关函数
@@ -1775,13 +1775,6 @@ function initModelCombobox() {
     input.value = value;
     state.settings.model = value;
     hideDropdown();
-
-    // 更新所有节点的默认模型显示
-    state.notes.forEach((note) => {
-      if (note.modelSelector) {
-        updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
-      }
-    });
   }
 
   function highlightNext() {
@@ -1859,37 +1852,166 @@ function showTestStatus(message, type) {
   elements.testStatus.className = 'api-test-status' + (type ? ` ${type}` : '');
 }
 
-function updateNoteModelSelector(selector, currentValue = '') {
-  if (!selector) return;
+function initNoteModelCombobox(input, dropdown, noteElement) {
+  let highlightedIndex = -1;
+  let filteredOptions = [];
 
-  const previousValue = selector.value;
-  selector.innerHTML = '';
-
-  // 添加默认选项（使用全局默认模型）
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  const defaultModel = state.settings.model || '默认模型';
-  defaultOption.textContent = `默认 (${defaultModel})`;
-  selector.appendChild(defaultOption);
-
-  // 添加所有可用模型
-  const models = state.availableModels || [];
-  models.forEach(model => {
-    const option = document.createElement('option');
-    option.value = model.id;
-    option.textContent = model.name;
-    selector.appendChild(option);
-  });
-
-  // 如果当前值不在列表中，添加它（兼容手动输入的模型）
-  if (currentValue && !selector.querySelector(`option[value="${currentValue}"]`)) {
-    const option = document.createElement('option');
-    option.value = currentValue;
-    option.textContent = currentValue;
-    selector.appendChild(option);
+  function getOptions() {
+    const options = [{ value: '', label: `默认 (${state.settings.model || '自动'})` }];
+    if (state.availableModels) {
+      state.availableModels.forEach(m => options.push({ value: m.id, label: m.name }));
+    }
+    return options;
   }
 
-  selector.value = currentValue || previousValue || '';
+  function showDropdown() {
+    dropdown.classList.add('active');
+    filterOptions(input.value);
+  }
+
+  function hideDropdown() {
+    dropdown.classList.remove('active');
+    highlightedIndex = -1;
+  }
+
+  function filterOptions(searchText) {
+    const options = getOptions();
+    const search = searchText.toLowerCase();
+
+    if (search) {
+      filteredOptions = options.filter(opt =>
+        opt.label.toLowerCase().includes(search) ||
+        opt.value.toLowerCase().includes(search)
+      );
+    } else {
+      filteredOptions = [...options];
+    }
+
+    renderDropdown();
+  }
+
+  function renderDropdown() {
+    dropdown.innerHTML = '';
+
+    if (filteredOptions.length === 0) {
+      const noResults = document.createElement('div');
+      noResults.className = 'note-model-option no-results';
+      noResults.textContent = '无匹配，回车使用输入';
+      dropdown.appendChild(noResults);
+      return;
+    }
+
+    filteredOptions.forEach((opt, index) => {
+      const option = document.createElement('div');
+      option.className = 'note-model-option';
+      option.textContent = opt.label;
+      option.dataset.value = opt.value;
+
+      if (index === highlightedIndex) {
+        option.classList.add('highlighted');
+      }
+      if (opt.value === noteElement.dataset.model) {
+        option.classList.add('selected');
+      }
+
+      option.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // 防止 blur 先触发
+        selectOption(opt.value);
+      });
+
+      dropdown.appendChild(option);
+    });
+  }
+
+  function selectOption(value) {
+    // 如果 value 为空，显示 placeholder 而不是空字符串
+    input.value = value;
+    noteElement.dataset.model = value;
+    hideDropdown();
+    persistState();
+  }
+
+  // 设置初始值
+  if (noteElement.dataset.model) {
+    input.value = noteElement.dataset.model;
+  }
+
+  function highlightNext() {
+    if (filteredOptions.length === 0) return;
+    highlightedIndex = (highlightedIndex + 1) % filteredOptions.length;
+    renderDropdown();
+    scrollToHighlighted();
+  }
+
+  function highlightPrev() {
+    if (filteredOptions.length === 0) return;
+    highlightedIndex = (highlightedIndex - 1 + filteredOptions.length) % filteredOptions.length;
+    renderDropdown();
+    scrollToHighlighted();
+  }
+
+  function scrollToHighlighted() {
+    const highlighted = dropdown.querySelector('.highlighted');
+    if (highlighted) {
+      highlighted.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // 事件监听
+  input.addEventListener('focus', showDropdown);
+
+  input.addEventListener('blur', () => {
+    setTimeout(hideDropdown, 200);
+  });
+
+  input.addEventListener('input', () => {
+    showDropdown();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!dropdown.classList.contains('active')) {
+          showDropdown();
+        } else {
+          highlightNext();
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        highlightPrev();
+        break;
+      case 'Enter':
+        e.preventDefault();
+        e.stopPropagation(); // 防止触发生成
+        if (highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
+          selectOption(filteredOptions[highlightedIndex].value);
+        } else {
+          // 使用当前输入值
+          selectOption(input.value);
+        }
+        break;
+      case 'Escape':
+        hideDropdown();
+        input.blur();
+        break;
+    }
+  });
+
+  // 点击外部关闭
+  document.addEventListener('click', (e) => {
+    if (!input.parentElement.contains(e.target)) {
+      hideDropdown();
+    }
+  });
+
+  // 返回更新函数
+  return {
+    updateValue: (value) => {
+      input.value = value || '';
+    }
+  };
 }
 
 function toggleMenu(force) {
@@ -1926,12 +2048,8 @@ function saveSettings() {
   state.settings = config;
   saveSettingsToStorage(config);
 
-  // 更新所有节点的模型选择器默认文本
-  state.notes.forEach((note) => {
-    if (note.modelSelector) {
-      updateNoteModelSelector(note.modelSelector, note.element.dataset.model);
-    }
-  });
+  // 节点的 modelSelector 是 input，不需要更新选项列表
+  // 它们会在 focus 时自动从 state.availableModels 获取最新列表
   elements.inputKey.value = '•'.repeat(config.apiKey.length);
   elements.inputKey.dataset.masked = 'true';
   pulseLoadingBar('success');
